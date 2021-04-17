@@ -1,15 +1,21 @@
+import net.ddp2p.ASN1.ASN1DecoderFail;
+import net.ddp2p.ASN1.Decoder;
 import net.ddp2p.common.util.GetOpt;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketAddress;
 import java.util.Calendar;
 import java.util.TimeZone;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class Server {
     static boolean running = true;
@@ -95,13 +101,16 @@ public class Server {
 
     }
 
+    static Logger logger = Logger.getLogger(Server.class.getName());
+
     private static void handleUDPPacket(DatagramPacket packet) {
-        // TODO: Replace Hello World UDP response
 
-        EventOK reply = new EventOK();
-        reply.code = 0;
+        SocketAddress socketAddress = packet.getSocketAddress();
+        logger.log(Level.INFO,String.format("New UDP packet from %s", socketAddress));
 
-        byte[] replyBytes = reply.encode();
+        byte[] inputData = packet.getData();
+
+        byte[] replyBytes = handle(inputData);
 
         DatagramPacket sendPacket = new DatagramPacket(replyBytes, replyBytes.length, packet.getAddress(), packet.getPort());
         try {
@@ -110,19 +119,25 @@ public class Server {
             ioException.printStackTrace();
         }
 
+        logger.log(Level.INFO, String.format("Done with UDP packet from %s", socketAddress));
     }
 
+
+
     private static void handleTCPConnection(Socket socket) {
-        // TODO: Replace Hello World TCP response
+        SocketAddress socketAddress = socket.getRemoteSocketAddress();
+        logger.log(Level.INFO,String.format("New TCP Connection with %s", socketAddress));
 
-        Event reply = new Event();
-        reply.time = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
-        reply.group = "Test";
-        reply.description = "This is a test";
-
-        byte[] replyBytes = reply.encode();
 
         try {
+
+            InputStream inputStream = socket.getInputStream();
+
+
+            byte[] inputData = new byte[1024];
+            int length = inputStream.read(inputData);
+            byte[] replyBytes = handle(inputData);
+
             OutputStream outputStream = socket.getOutputStream();
 
             outputStream.write(replyBytes);
@@ -133,6 +148,45 @@ public class Server {
             ioException.printStackTrace();
         }
 
+        logger.log(Level.INFO,String.format("Closed TCP Connection with %s", socketAddress));
+    }
+
+    private static Event constructEvent(Calendar calendar, String group, String description) {
+        Event reply = new Event();
+        reply.time = calendar;
+        reply.group = group;
+        reply.description = description;
+
+        return reply;
+    }
+
+    private static byte[] handle(byte[] data) {
+
+        Decoder decoder = new Decoder(data, 0, data.length);
+
+        if (decoder.getTypeByte() == Request.TAG_CC2) {
+            try {
+                Request request = new Request().decode(decoder);
+
+                System.out.printf("Requested group: %s\r\n", request.group);
+            } catch (ASN1DecoderFail asn1DecoderFail) {
+                asn1DecoderFail.printStackTrace();
+            }
+        }
+
+
+        /*byte[] replyBytes = constructEvent(
+                Calendar.getInstance(TimeZone.getTimeZone("UTC")),
+                "Test",
+                "Testing packet creation"
+        ).encode();*/
+
+        EventOK r = new EventOK();
+        r.code = 0;
+
+        return r.encode();
+
+        //return replyBytes;
     }
 }
 

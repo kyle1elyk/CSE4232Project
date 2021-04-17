@@ -22,7 +22,7 @@ class Request extends ASNObjArrayable {
         Encoder e = new Encoder().initSequence();
 
         e.addToSequence(new Encoder(group));
-        e.addToSequence(new Encoder(Encoder.getGeneralizedTime(after_time)));
+        e.addToSequence(new Encoder(Encoder.getGeneralizedTime(after_time)).setASN1Type(Encoder.TAG_GeneralizedTime));
 
         return e.setASN1TypeImplicit(TAG_CC2);
     }
