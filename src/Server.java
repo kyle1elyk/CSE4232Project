@@ -6,6 +6,8 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Calendar;
+import java.util.TimeZone;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -95,8 +97,13 @@ public class Server {
 
     private static void handleUDPPacket(DatagramPacket packet) {
         // TODO: Replace Hello World UDP response
-        String reply = "Hello World!";
-        DatagramPacket sendPacket = new DatagramPacket(reply.getBytes(), reply.length(), packet.getAddress(), packet.getPort());
+
+        EventOK reply = new EventOK();
+        reply.code = 0;
+
+        byte[] replyBytes = reply.encode();
+
+        DatagramPacket sendPacket = new DatagramPacket(replyBytes, replyBytes.length, packet.getAddress(), packet.getPort());
         try {
             udpSocket.send(sendPacket);
         } catch (IOException ioException) {
@@ -107,10 +114,18 @@ public class Server {
 
     private static void handleTCPConnection(Socket socket) {
         // TODO: Replace Hello World TCP response
+
+        Event reply = new Event();
+        reply.time = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+        reply.group = "Test";
+        reply.description = "This is a test";
+
+        byte[] replyBytes = reply.encode();
+
         try {
             OutputStream outputStream = socket.getOutputStream();
 
-            outputStream.write("Hello world!\r\n".getBytes());
+            outputStream.write(replyBytes);
             outputStream.close();
             socket.close();
 

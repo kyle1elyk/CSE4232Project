@@ -26,7 +26,7 @@ class Event extends ASNObjArrayable {
 
         Encoder e = new Encoder().initSequence();
 
-        e.addToSequence(new Encoder(Encoder.getGeneralizedTime(time)));
+        e.addToSequence(new Encoder(Encoder.getGeneralizedTime(time)).setASN1Type(Encoder.TAG_GeneralizedTime));
         e.addToSequence(new Encoder(group));
         e.addToSequence(new Encoder(description));
 
