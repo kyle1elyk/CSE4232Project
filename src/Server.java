@@ -178,14 +178,17 @@ public class Server {
             if (mode == Mode.UDP) {
                 if (typeByte == Leave.TAG_CC4) {
                     Leave leave = new Leave().decode(decoder);
-                    leave(leave.register.group, socketAddress);
 
+                    System.out.printf("\r\n%s requesting to leave group %s\r\n\r\n", socketAddress, leave.register.group);
+
+                    leave(leave.register.group, socketAddress);
                     EventOK r = new EventOK();
                     r.code = 0;
                     return r.encode();
                 } else if(typeByte == Register.TAG_CC3) {
 
                     Register register = new Register().decode(decoder);
+                    System.out.printf("\r\n%s requesting to register for group %s\r\n\r\n", socketAddress, register.group);
                     subscribe(register.group, socketAddress);
 
                     EventOK r = new EventOK();
