@@ -290,15 +290,15 @@ public class Server {
                 "Testing packet creation"
         ).encode();
         return replyBytes;
-*/
+
         Register r = new Register();
         r.group = "Test";
         return r.encode();
-/*
+
         Leave l = new Leave();
         l.register = r;
-        return l.encode();*/
-/*
+        return l.encode();
+
 
         Request r = new Request();
         r.group = "Test";
@@ -307,10 +307,10 @@ public class Server {
 
         return r.encode();
 */
-/*
+
         EventOK r = new EventOK();
         r.code = 1;
-        return r.encode();*/
+        return r.encode();
     }
 
     private static void subscribe(String group, SocketAddress socketAddress) {

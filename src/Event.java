@@ -54,7 +54,6 @@ class Event extends ASNObjArrayable {
 
     @Override
     public String toString() {
-        DateTimeFormatter format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ENGLISH);
 
         return "Event{" +
                 "time=" + Server.formatCalendar(time) +
