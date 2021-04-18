@@ -10,8 +10,14 @@ import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketAddress;
+import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.ResourceBundle;
 import java.util.TimeZone;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.logging.Level;
@@ -106,11 +112,12 @@ public class Server {
     private static void handleUDPPacket(DatagramPacket packet) {
 
         SocketAddress socketAddress = packet.getSocketAddress();
-        logger.log(Level.INFO,String.format("New UDP packet from %s", socketAddress));
+
+        System.out.printf("New UDP packet from %s\r\n", socketAddress);
 
         byte[] inputData = packet.getData();
 
-        byte[] replyBytes = handle(inputData);
+        byte[] replyBytes = handle(inputData, Mode.UDP, socketAddress);
 
         DatagramPacket sendPacket = new DatagramPacket(replyBytes, replyBytes.length, packet.getAddress(), packet.getPort());
         try {
@@ -119,14 +126,14 @@ public class Server {
             ioException.printStackTrace();
         }
 
-        logger.log(Level.INFO, String.format("Done with UDP packet from %s", socketAddress));
+        System.out.printf("Done with UDP packet from %s\r\n\r\n", socketAddress);
     }
 
 
 
     private static void handleTCPConnection(Socket socket) {
         SocketAddress socketAddress = socket.getRemoteSocketAddress();
-        logger.log(Level.INFO,String.format("New TCP Connection with %s", socketAddress));
+        System.out.printf("New TCP Connection with %s\r\n", socketAddress);
 
 
         try {
@@ -136,7 +143,7 @@ public class Server {
 
             byte[] inputData = new byte[1024];
             int length = inputStream.read(inputData);
-            byte[] replyBytes = handle(inputData);
+            byte[] replyBytes = handle(inputData, Mode.TCP, socketAddress);
 
             OutputStream outputStream = socket.getOutputStream();
 
@@ -148,7 +155,7 @@ public class Server {
             ioException.printStackTrace();
         }
 
-        logger.log(Level.INFO,String.format("Closed TCP Connection with %s", socketAddress));
+        System.out.printf("Closed TCP Connection with %s\r\n\r\n", socketAddress);
     }
 
     private static Event constructEvent(Calendar calendar, String group, String description) {
@@ -160,33 +167,106 @@ public class Server {
         return reply;
     }
 
-    private static byte[] handle(byte[] data) {
+    static ConcurrentHashMap<String, List<SocketAddress>> subscribersByGroup = new ConcurrentHashMap<>();
+
+    private static byte[] handle(byte[] data, Mode mode, SocketAddress socketAddress) {
 
         Decoder decoder = new Decoder(data, 0, data.length);
 
-        if (decoder.getTypeByte() == Request.TAG_CC2) {
-            try {
-                Request request = new Request().decode(decoder);
+        byte typeByte = decoder.getTypeByte();
+        try {
+            if (mode == Mode.UDP) {
+                if (typeByte == Leave.TAG_CC4) {
+                    Leave leave = new Leave().decode(decoder);
+                    leave(leave.register.group, socketAddress);
 
-                System.out.printf("Requested group: %s\r\n", request.group);
-            } catch (ASN1DecoderFail asn1DecoderFail) {
-                asn1DecoderFail.printStackTrace();
+                    EventOK r = new EventOK();
+                    r.code = 0;
+                    return r.encode();
+                } else if(typeByte == Register.TAG_CC3) {
+
+                    Register register = new Register().decode(decoder);
+                    subscribe(register.group, socketAddress);
+
+                    EventOK r = new EventOK();
+                    r.code = 0;
+                    return r.encode();
+                }
             }
+
+            if (typeByte == Request.TAG_CC2) {
+
+                    Request request = new Request().decode(decoder);
+
+                    System.out.printf("Requested group: %s\r\n", request.group);
+
+            } else if (typeByte == Event.TAG_CC1) {
+                    Event event = new Event().decode(decoder);
+
+                    System.out.printf("Event to be added: %s\r\n", event);
+
+                    EventOK r = new EventOK();
+                    r.code = 0;
+                    return r.encode();
+
+            }
+        } catch (ASN1DecoderFail asn1DecoderFail) {
+            asn1DecoderFail.printStackTrace();
         }
 
+/*
 
-        /*byte[] replyBytes = constructEvent(
+        byte[] replyBytes = constructEvent(
                 Calendar.getInstance(TimeZone.getTimeZone("UTC")),
                 "Test",
                 "Testing packet creation"
-        ).encode();*/
+        ).encode();
+*/
+
+        // return replyBytes;
+/*
 
         EventOK r = new EventOK();
-        r.code = 0;
-
+        r.code = 1;
         return r.encode();
+*/
 
-        //return replyBytes;
+        Register r = new Register();
+        r.group = "CSE4232";
+
+        Leave l = new Leave();
+        l.register = r;
+        return l.encode();
+    }
+
+    private static void subscribe(String group, SocketAddress socketAddress) {
+        List<SocketAddress> addresses;
+        if(!subscribersByGroup.containsKey(group)) {
+
+            subscribersByGroup.put(group, Collections.synchronizedList(new ArrayList<>()));
+
+        }
+        addresses = subscribersByGroup.get(group);
+
+        if (!addresses.contains(socketAddress)) {
+            addresses.add(socketAddress);
+        }
+        System.out.printf("Subscribers for %s:\r\n", group);
+        addresses.forEach(System.out::println);
+    }
+
+    private static void leave(String group, SocketAddress socketAddress) {
+        if(subscribersByGroup.containsKey(group)) {
+            List<SocketAddress> addresses = subscribersByGroup.get(group);
+
+            addresses.removeIf(address -> address.equals(socketAddress));
+
+            System.out.printf("Subscribers for %s:\r\n", group);
+            addresses.forEach(System.out::println);
+        }
     }
 }
 
+enum Mode {
+    TCP, UDP;
+}
