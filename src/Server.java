@@ -10,36 +10,49 @@ import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketAddress;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.ResourceBundle;
-import java.util.TimeZone;
+import java.util.Locale;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 public class Server {
+    public static final int TEN_SECONDS = 10000;
+    public static final int ONE_SECOND = 1000;
+    public static final int ONE_MINUTE = 60000;
     static boolean running = true;
     static DatagramSocket udpSocket;
     static ServerSocket tcpSocket;
 
-    public static void main(final String[] args) {
+    public static void main(final String[] args) throws ClassNotFoundException {
+        Class.forName("org.sqlite.JDBC");
+
         char c;
         int argPort = 21998;
 
         final ExecutorService pool = Executors.newCachedThreadPool();
 
         while((c=GetOpt.getopt(args, "p:"))!=GetOpt.END){
-            switch(c){
-                case 'p': argPort = Integer.parseInt(GetOpt.optarg); break;
-                default:
-                    System.out.println("Error: "+c);
-                    return;
+            if (c == 'p') {
+                argPort = Integer.parseInt(GetOpt.optarg);
+            } else {
+                System.out.println("Error: " + c);
+                return;
             }
         }
 
@@ -105,9 +118,49 @@ public class Server {
             }
         });
 
+
+        Timer subscriberWatcherTimer = new Timer();
+        TimerTask subscriberWatcherTask = new TimerTask() {
+            @Override
+            public void run() {
+                subscribersByGroup.forEach((group, subscribers) ->
+                        subscribers.removeIf(subscriber ->
+                                subscriber.expiration.isBefore(ZonedDateTime.now()
+                                )
+                        )
+                );
+            }
+        };
+        subscriberWatcherTimer.scheduleAtFixedRate(subscriberWatcherTask, 0, TEN_SECONDS);
+        // Check every 10 seconds
+
+        Timer eventWatcherTimer = new Timer();
+        TimerTask eventWatcherTask = new TimerTask() {
+            @Override
+            public void run() {
+                ArrayList<Event> events = popRecentEvents();
+
+                events.forEach(event -> {
+                    if (subscribersByGroup.containsKey(event.group)) {
+                        subscribersByGroup.get(event.group).forEach(subscriber -> alert(subscriber, event));
+                    }
+                });
+            }
+        };
+        eventWatcherTimer.scheduleAtFixedRate(eventWatcherTask, 0, ONE_SECOND);
+
     }
 
-    static Logger logger = Logger.getLogger(Server.class.getName());
+    private static void alert(Subscriber subscriber, Event event) {
+        byte[] eventMessage = event.encode();
+        DatagramPacket sendPacket = new DatagramPacket(eventMessage, eventMessage.length, subscriber.socketAddress);
+        try {
+            udpSocket.send(sendPacket);
+            System.out.printf("Sent alert to %s for Event %s\r\n", subscriber.socketAddress, event);
+        } catch (IOException ioException) {
+            ioException.printStackTrace();
+        }
+    }
 
     private static void handleUDPPacket(DatagramPacket packet) {
 
@@ -167,7 +220,10 @@ public class Server {
         return reply;
     }
 
-    static ConcurrentHashMap<String, List<SocketAddress>> subscribersByGroup = new ConcurrentHashMap<>();
+    /**
+     * Keeps track of UDP alert connections
+     */
+    static ConcurrentHashMap<String, List<Subscriber>> subscribersByGroup = new ConcurrentHashMap<>();
 
     private static byte[] handle(byte[] data, Mode mode, SocketAddress socketAddress) {
 
@@ -201,12 +257,22 @@ public class Server {
 
                     Request request = new Request().decode(decoder);
 
-                    System.out.printf("Requested group: %s\r\n", request.group);
+                    System.out.printf("Requested group '%s' after %s\r\n", request.group, formatCalendar(request.after_time));
+
+                    Answer answer = getEventsAfter(request.group, request.after_time);
+                    System.out.println("Returning:");
+                    Arrays.stream(answer.events).forEach(System.out::println);
+
+                    return answer.encode();
 
             } else if (typeByte == Event.TAG_CC1) {
                     Event event = new Event().decode(decoder);
 
-                    System.out.printf("Event to be added: %s\r\n", event);
+                    System.out.printf("Event to be added => %s\r\n", event);
+
+
+                    addToDB(event.group, event.description, event.time);
+
 
                     EventOK r = new EventOK();
                     r.code = 0;
@@ -218,32 +284,37 @@ public class Server {
         }
 
 /*
-
         byte[] replyBytes = constructEvent(
                 Calendar.getInstance(TimeZone.getTimeZone("UTC")),
                 "Test",
                 "Testing packet creation"
         ).encode();
+        return replyBytes;
 */
-
-        // return replyBytes;
-/*
-
-        EventOK r = new EventOK();
-        r.code = 1;
-        return r.encode();
-*/
-
         Register r = new Register();
-        r.group = "CSE4232";
-
+        r.group = "Test";
+        return r.encode();
+/*
         Leave l = new Leave();
         l.register = r;
-        return l.encode();
+        return l.encode();*/
+/*
+
+        Request r = new Request();
+        r.group = "Test";
+        r.after_time = Calendar.getInstance();
+        r.after_time.setTimeInMillis(0);
+
+        return r.encode();
+*/
+/*
+        EventOK r = new EventOK();
+        r.code = 1;
+        return r.encode();*/
     }
 
     private static void subscribe(String group, SocketAddress socketAddress) {
-        List<SocketAddress> addresses;
+        List<Subscriber> addresses;
         if(!subscribersByGroup.containsKey(group)) {
 
             subscribersByGroup.put(group, Collections.synchronizedList(new ArrayList<>()));
@@ -252,7 +323,7 @@ public class Server {
         addresses = subscribersByGroup.get(group);
 
         if (!addresses.contains(socketAddress)) {
-            addresses.add(socketAddress);
+            addresses.add(new Subscriber(socketAddress));
         }
         System.out.printf("Subscribers for %s:\r\n", group);
         addresses.forEach(System.out::println);
@@ -260,7 +331,7 @@ public class Server {
 
     private static void leave(String group, SocketAddress socketAddress) {
         if(subscribersByGroup.containsKey(group)) {
-            List<SocketAddress> addresses = subscribersByGroup.get(group);
+            List<Subscriber> addresses = subscribersByGroup.get(group);
 
             addresses.removeIf(address -> address.equals(socketAddress));
 
@@ -268,6 +339,132 @@ public class Server {
             addresses.forEach(System.out::println);
         }
     }
+
+    protected static String formatCalendar(Calendar calendar) {
+        DateTimeFormatter format = DateTimeFormatter.ofPattern("yyyy-MM-dd:HH'h'mm'm'ss's'SSS'Z'", Locale.ENGLISH);
+
+        return format.format(ZonedDateTime.ofInstant(calendar.toInstant(), ZoneId.of("UTC")));
+    }
+
+
+    protected static final String DB_CONNECTION_URL = "jdbc:sqlite:events.db";
+    private static void addToDB(String group, String description, Calendar time) {
+
+        try (Connection conn = DriverManager.getConnection(DB_CONNECTION_URL)) {
+
+            Statement statement = conn.createStatement();
+
+            statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS `events`" +
+                            "(id INTEGER PRIMARY KEY," +
+                            "group_name TEXT," +
+                            "description TEXT," +
+                            "event_time INTEGER)"
+            );
+
+            PreparedStatement insertStatement = conn.prepareStatement(
+                    "INSERT INTO events(group_name, description, event_time) VALUES (?, ?, ?)"
+            );
+
+            insertStatement.setString(1, group);
+            insertStatement.setString(2, description);
+            insertStatement.setLong(3, time.getTimeInMillis());
+
+            insertStatement.execute();
+
+        } catch (SQLException sqlException) {
+            sqlException.printStackTrace();
+        }
+    }
+    private static Answer getEventsAfter(String group, Calendar time) {
+        try (Connection conn = DriverManager.getConnection(DB_CONNECTION_URL)) {
+
+            Statement statement = conn.createStatement();
+            statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS `events`" +
+                            "(id INTEGER PRIMARY KEY," +
+                            "group_name TEXT," +
+                            "description TEXT," +
+                            "event_time INTEGER)"
+            );
+            ArrayList<Event> events = new ArrayList<>();
+
+            PreparedStatement queryStatement = conn.prepareStatement(
+                    "SELECT * FROM events WHERE event_time > ? AND group_name = ?"
+            );
+
+            queryStatement.setLong(1, time.getTimeInMillis());
+            queryStatement.setString(2, group);
+
+            getEventsFromStatement(events, queryStatement);
+
+            Answer answer  = new Answer();
+            answer.events = events.toArray(new Event[events.size()]);
+
+            return answer;
+
+        } catch (SQLException sqlException) {
+            sqlException.printStackTrace();
+        }
+        return null;
+    }
+
+    private static ArrayList<Event> popRecentEvents() {
+        try (Connection conn = DriverManager.getConnection(DB_CONNECTION_URL)) {
+            long currentMillis = ZonedDateTime.now().toInstant().toEpochMilli();
+
+            Statement statement = conn.createStatement();
+            statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS `events`" +
+                            "(id INTEGER PRIMARY KEY," +
+                            "group_name TEXT," +
+                            "description TEXT," +
+                            "event_time INTEGER)"
+            );
+            ArrayList<Event> events = new ArrayList<>();
+
+            PreparedStatement queryStatement = conn.prepareStatement(
+                    "SELECT * FROM events WHERE event_time <= ? AND event_time > ? ORDER BY event_time ASC"
+            );
+
+            queryStatement.setLong(1, currentMillis);
+            queryStatement.setLong(2, currentMillis - ONE_MINUTE);
+
+            // Do not return events over a minute old, silently delete them
+
+            getEventsFromStatement(events, queryStatement);
+
+            queryStatement = conn.prepareStatement(
+                    "DELETE FROM events WHERE event_time <= ? "
+            );
+
+            queryStatement.setLong(1, currentMillis);
+            queryStatement.execute();
+
+            return events;
+
+        }catch (SQLException sqlException) {
+            sqlException.printStackTrace();
+        }
+        return null;
+    }
+
+    private static void getEventsFromStatement(ArrayList<Event> events, PreparedStatement queryStatement) throws SQLException {
+        ResultSet rs = queryStatement.executeQuery();
+
+        while (rs.next()) {
+            Event e = new Event();
+            Calendar c = Calendar.getInstance();
+            c.setTimeInMillis(rs.getLong("event_time"));
+
+            e.group = rs.getString("group_name");
+            e.description = rs.getString("description");
+            e.time = c;
+
+            events.add(e);
+        }
+    }
+
 }
 
 enum Mode {

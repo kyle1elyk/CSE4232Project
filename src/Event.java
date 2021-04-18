@@ -57,7 +57,7 @@ class Event extends ASNObjArrayable {
         DateTimeFormatter format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ENGLISH);
 
         return "Event{" +
-                "time=" + format.format(ZonedDateTime.ofInstant(time.toInstant(), ZoneId.of("UTC"))) +
+                "time=" + Server.formatCalendar(time) +
                 ", group='" + group + '\'' +
                 ", description='" + description + '\'' +
                 '}';
