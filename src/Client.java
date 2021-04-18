@@ -70,8 +70,6 @@ public class Client {
 
                             byte[] replyBytes = event.encode();
 
-
-
                             outputStream.write(replyBytes);
 
 
@@ -184,9 +182,7 @@ public class Client {
         } catch (ParseException e) {
             e.printStackTrace();
         }
-        Calendar temp = Calendar.getInstance();
-        temp.setTimeZone(TimeZone.getTimeZone("ET"));
-        return temp;
-        //return calendar;
+
+        return calendar;
     }
 }

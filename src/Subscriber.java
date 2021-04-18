@@ -17,11 +17,11 @@ public class Subscriber {
             Subscriber that = (Subscriber) obj;
             if (that.socketAddress.equals(this.socketAddress)) {
 
-                if (that.expiration.isAfter(this.expiration)) {
+                /*if (that.expiration.isAfter(this.expiration)) {
                     this.expiration = that.expiration;
                 } else {
                     that.expiration = this.expiration;
-                }
+                }*/
 
                 return true;
             }

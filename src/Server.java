@@ -347,7 +347,7 @@ public class Server {
     }
 
 
-    protected static final String DB_CONNECTION_URL = "jdbc:sqlite:events.db";
+    protected static final String DB_CONNECTION_URL = "jdbc:sqlite:" + System.getenv("DB_PATH");
     private static void addToDB(String group, String description, Calendar time) {
 
         try (Connection conn = DriverManager.getConnection(DB_CONNECTION_URL)) {
