@@ -18,6 +18,7 @@ import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Locale;
 import java.util.Scanner;
+import java.util.TimeZone;
 
 public class Client {
     public static void main(final String[] args) {
@@ -41,7 +42,6 @@ public class Client {
                 command = GetOpt.optarg;
             }
         }
-        System.out.println("Got here");
         if (command == null ) {
             System.err.println("Add a command with -c");
             System.exit(1);
@@ -121,7 +121,7 @@ public class Client {
 
         } else {
             try (DatagramSocket socket = new DatagramSocket()) {
-                System.out.printf("Connecting from %d\r\nEOL to exit...", socket.getLocalPort());
+                System.out.printf("Connecting from %d\r\nCTRL-C to exit...", socket.getLocalPort());
 
                 if (commandArgs[0].equals("REGISTER")) {
                     Register register = new Register();
@@ -145,10 +145,9 @@ public class Client {
                 byte[] buf = new byte[1024];
                 DatagramPacket packet = new DatagramPacket(buf, buf.length);
 
-                Scanner in = new Scanner(System.in);
 
                 socket.setSoTimeout(1000);
-                while (in.hasNextLine()) {
+                while (true) {
                     try {
                         socket.receive(packet);
                         byte[] input = packet.getData();
@@ -163,13 +162,11 @@ public class Client {
                         }
 
                     } catch (SocketTimeoutException socketTimeoutException) {
-
                     } catch (ASN1DecoderFail asn1DecoderFail) {
                         asn1DecoderFail.printStackTrace();
                     }
                 }
 
-                in.close();
             } catch (SocketException e) {
                 e.printStackTrace();
             } catch (UnknownHostException e) {
@@ -188,7 +185,9 @@ public class Client {
         } catch (ParseException e) {
             e.printStackTrace();
         }
-
-        return calendar;
+        Calendar temp = Calendar.getInstance();
+        temp.setTimeZone(TimeZone.getTimeZone("ET"));
+        return temp;
+        //return calendar;
     }
 }
