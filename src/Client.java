@@ -5,12 +5,19 @@ import net.ddp2p.common.util.GetOpt;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
 import java.net.Socket;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Locale;
+import java.util.Scanner;
 
 public class Client {
     public static void main(final String[] args) {
@@ -113,7 +120,63 @@ public class Client {
             }
 
         } else {
+            try (DatagramSocket socket = new DatagramSocket()) {
+                System.out.printf("Connecting from %d\r\nEOL to exit...", socket.getLocalPort());
 
+                if (commandArgs[0].equals("REGISTER")) {
+                    Register register = new Register();
+                    register.group = commandArgs[1];
+
+                    byte[] registerMsg = register.encode();
+                    DatagramPacket packet = new DatagramPacket(registerMsg, registerMsg.length, InetAddress.getByName(host), argPort);
+                    socket.send(packet);
+
+                }else if (commandArgs[0].equals("LEAVE")) {
+                    Leave leave = new Leave();
+                    leave.register = new Register();
+                    leave.register.group = commandArgs[1];
+
+                    byte[] leaveMsg = leave.encode();
+                    DatagramPacket packet = new DatagramPacket(leaveMsg, leaveMsg.length, InetAddress.getByName(host), argPort);
+                    socket.send(packet);
+
+                }
+
+                byte[] buf = new byte[1024];
+                DatagramPacket packet = new DatagramPacket(buf, buf.length);
+
+                Scanner in = new Scanner(System.in);
+
+                socket.setSoTimeout(1000);
+                while (in.hasNextLine()) {
+                    try {
+                        socket.receive(packet);
+                        byte[] input = packet.getData();
+                        Decoder decoder = new Decoder(input, 0, input.length);
+
+                        if (decoder.getTypeByte() == EventOK.TAG_CC0) {
+                            EventOK eventOK = new EventOK().decode(decoder);
+                            System.out.printf("Server returned %s\r\n", eventOK.code == 0? "OK": "NOT OK");
+                        } else if (decoder.getTypeByte() == Event.TAG_CC1){
+                            Event event = new Event().decode(decoder);
+                            System.out.printf("Server returned event: %s\r\n", event);
+                        }
+
+                    } catch (SocketTimeoutException socketTimeoutException) {
+
+                    } catch (ASN1DecoderFail asn1DecoderFail) {
+                        asn1DecoderFail.printStackTrace();
+                    }
+                }
+
+                in.close();
+            } catch (SocketException e) {
+                e.printStackTrace();
+            } catch (UnknownHostException e) {
+                e.printStackTrace();
+            } catch (IOException ioException) {
+                ioException.printStackTrace();
+            }
         }
     }
 
